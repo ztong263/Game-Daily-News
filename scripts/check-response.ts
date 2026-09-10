@@ -1,0 +1,2 @@
+import {api} from "../lib/server/openai";
+async function main(){try{const response=await api().responses.create({model:process.env.EDITORIAL_MODEL||"gpt-6-astra",reasoning:{effort:"low"},input:"Reply OK.",max_output_tokens:64},{timeout:30000,maxRetries:0});console.log(JSON.stringify({status:response.status,hasText:!!response.output_text}));}catch(error){const e=error as {name?:string;status?:number;code?:string};console.log(JSON.stringify({name:e.name,status:e.status,code:e.code}));process.exitCode=1;}}void main();

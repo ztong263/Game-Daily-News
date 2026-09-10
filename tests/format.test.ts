@@ -1,0 +1,2 @@
+import test from "node:test";import assert from "node:assert/strict";import {editorialFormat} from "../lib/editorial/format";import {contentSchema,sourceSchema} from "../lib/brief/schema";
+test("API schema omits unsupported URI format but local URL validation stays strict",()=>{const format=editorialFormat(contentSchema,"brief");assert.equal(JSON.stringify(format.schema).includes('"format":"uri"'),false);assert.equal(sourceSchema.safeParse({title:"x",publisher:"x",url:"javascript:alert(1)",publishedAt:null,kind:"primary"}).success,false);});

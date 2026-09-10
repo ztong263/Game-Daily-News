@@ -1,0 +1,4 @@
+data/
+.env*
+*.tsbuildinfo
+coverage/
