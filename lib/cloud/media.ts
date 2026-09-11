@@ -6,6 +6,7 @@ import {api} from "../server/openai";
 import {pipelineBudget} from "../editorial/budget";
 import {CloudRepository} from "./repository";
 import {CloudError} from "./auth-policy";
+import {cloudFailure} from "./errors";
 export const AUDIO_BUCKET="game-daily-audio";
 export class CloudMedia{
  constructor(readonly db:SupabaseClient,readonly ownerId:string){}
@@ -28,14 +29,17 @@ export class CloudMedia{
   const token=randomUUID();const claim=await this.db.rpc("gd_claim_speech",{p_owner:this.ownerId,p_key:key,p_token:token});
   if(claim.error)throw claim.error;if(!claim.data)throw new CloudError("下一段音频正在准备，请稍后点击继续。",409);
   let completed=false;
+  let stage="cache_read";
   try{
    const hit=await this.cached(key);if(hit){completed=true;return {url:"/api/speech?key="+key,text:hit.metadata.text,cacheHit:true};}
    let text=part.text;
    if(data.language==="en"){
+    stage="translation_cache";
     const cachedTranslation=await this.db.from("gd_pipeline_cache").select("payload").eq("owner_id",this.ownerId).eq("cache_key","translation:"+key).maybeSingle();
     if(cachedTranslation.error)throw cachedTranslation.error;
     if(typeof cachedTranslation.data?.payload?.text==="string"&&cachedTranslation.data.payload.text.trim())text=cachedTranslation.data.payload.text;
     else{
+    stage="translation_request";
     const translated=await api().responses.create({model:translationModel,max_output_tokens:2000,instructions:"Translate this prepared broadcast paragraph into natural spoken English. Preserve facts, caveats and examples. Add nothing. Return only the translation.",input:text},{timeout:90000,maxRetries:0});
     await this.usage(translated.id,"translation",translationModel,translated.usage??null,{date:data.date,version:data.version,index:data.index,usage:translated.usage});
     if(translated.status!=="completed"||!translated.output_text.trim())throw new CloudError("翻译未完成，请稍后重试。",502);text=translated.output_text;
@@ -44,14 +48,25 @@ export class CloudMedia{
     }
    }
    const event=randomUUID();
+   stage="speech_request";
    const audio=await api().audio.speech.create({model,voice:voice as "marin",input:text,response_format:"mp3",instructions:"Read exactly the provided script in a warm, clear conversational presenter voice. Keep a natural pace; do not add or omit content."},{timeout:120000,maxRetries:0});
+   stage="audio_read";
    const bytes=Buffer.from(await audio.arrayBuffer());
    // Record every successful synthesis, even if the subsequent upload fails.
+   stage="usage_save";
    await this.usage(event,"speech",model,null,{date:data.date,version:data.version,index:data.index,language:data.language,characters:[...text].length,bytes:bytes.length,ttsUsage:null});
    const objectPath=this.ownerId+"/"+key+".mp3";
+   stage="audio_upload";
    const uploaded=await this.db.storage.from(AUDIO_BUCKET).upload(objectPath,bytes,{contentType:"audio/mpeg",upsert:true});if(uploaded.error)throw uploaded.error;
+   stage="audio_index";
    const saved=await this.db.from("gd_audio").upsert({owner_id:this.ownerId,cache_key:key,object_path:objectPath,metadata:{...data,text,model,voice,characters:[...text].length,bytes:bytes.length,ttsUsage:null}},{onConflict:"owner_id,cache_key"});if(saved.error)throw saved.error;
    completed=true;return {url:"/api/speech?key="+key,text,cacheHit:false};
+  }catch(error){
+   const failure=cloudFailure(error);
+   // Only fixed labels are logged. Never include messages, scripts, IDs or keys.
+   const kind=error instanceof TypeError?"TypeError":error instanceof Error?"Error":"Other";
+   console.error("cloud_speech_failed",{stage,kind,status:failure.status});
+   throw new CloudError(failure.error+"（定位："+stage+" / "+kind+"）",failure.status);
   }finally{
    await this.db.from("gd_jobs").update({status:completed?"completed":"failed",lease_until:null,updated_at:new Date().toISOString()}).eq("owner_id",this.ownerId).eq("job_key","speech:"+key).eq("payload->>token",token);
   }
