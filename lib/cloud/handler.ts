@@ -9,6 +9,7 @@ import {cloudSession,cloudSearch,cloudVoiceUsage} from "./live";
 import {startGeneration,advanceGeneration} from "./generation";
 import {after} from "next/server";
 import {migrateLocalBatch} from "./local-migration";
+import {cloudFailure} from "./errors";
 export async function cloudRequest(request:Request){
  try{
   assertSameOrigin(request);
@@ -60,6 +61,7 @@ export async function cloudRequest(request:Request){
   return Response.json(result,{headers:{"Cache-Control":"private, no-store"}});
  }catch(e){
   if(e instanceof z.ZodError)return Response.json({error:"内容格式不正确。",issues:e.issues.map(i=>({path:i.path,message:i.message}))},{status:400});
-  return Response.json({error:e instanceof CloudError?e.message:e instanceof SyntaxError?"JSON 格式错误。":"云端请求未完成，请检查配置或稍后重试。"},{status:e instanceof CloudError?e.status:e instanceof SyntaxError?400:503,headers:{"Cache-Control":"no-store"}});
+  const failure=cloudFailure(e);
+  return Response.json({error:failure.error},{status:failure.status,headers:{"Cache-Control":"no-store"}});
  }
 }
