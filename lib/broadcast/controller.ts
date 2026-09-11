@@ -34,7 +34,10 @@ export function initialCursor(): Cursor {
 export function transition(s: Cursor, a: Action, ids: string[]): Cursor {
   if (a.type === "resume") {
     if (s.mode === "broadcasting") return s;
-    if (s.index >= ids.length) return { ...s, mode: "ended", active: null };
+    if (!ids.length) return { ...s, mode: "ended", active: null };
+    // An explicit resume after completion starts a fresh pass; automatic playback
+    // only resumes paused cursors, so reaching the end never loops by itself.
+    if (s.index >= ids.length) s = { ...s, index: 0, completed: [] };
     const epoch = s.epoch + 1;
     return {
       ...s,

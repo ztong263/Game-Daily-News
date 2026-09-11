@@ -302,7 +302,9 @@ export default function Home() {
               >
                 {voice.connecting
                   ? "正在连接…"
-                  : voice.connected
+                  : voice.cursor.index >= paragraphs(brief).length
+                    ? "重新播报"
+                    : voice.connected
                     ? "继续播报"
                     : selectedDate?"开始这期早报":"开始今天的早报"}{" "}
                 <span>↗</span>
