@@ -26,15 +26,15 @@ export class CloudRepository{
  async versions(date:string){
   const {data,error}=await this.db.from("gd_briefs").select("payload,is_active").eq("owner_id",this.ownerId).eq("brief_date",date).order("created_at");
   if(error)throw error;
-  return (data||[]).map(row=>{const b=canonical(row.payload);return {id:b.id,version:b.version,date:b.date,title:b.title,sourceType:b.sourceType,createdAt:b.createdAt,active:row.is_active};});
+  return (data||[]).map(row=>{const b=canonical(row.payload);return {id:b.id,version:b.version,date:b.date,title:b.title,sourceType:b.sourceType,ingestionChannel:b.ingestionChannel,createdAt:b.createdAt,active:row.is_active};});
  }
- async import(input:unknown){
+ async import(input:unknown,channel:"json_import"|"chatgpt_publish"="json_import"){
   const envelope=input&&typeof input==="object"?input as Record<string,unknown>:null;
   const request=importSchema.parse(envelope?{...envelope,brief:normalizeImport(envelope.brief)}:input);
   if(request.brief.sourceType==="generated")throw new CloudError("导入来源必须为 imported_chatgpt 或 manual。",400);
   const hash=createHash("sha256").update(JSON.stringify({brief:request.brief,activate:request.activate})).digest("hex");
   const key=createHash("sha256").update(request.brief.date+":"+request.idempotencyKey).digest("hex");
-  const brief=canonical({...request.brief,id:"brief_"+request.brief.date+"_"+randomUUID(),version:randomUUID(),sourceType:request.brief.sourceType||"imported_chatgpt",createdAt:new Date().toISOString()});
+  const brief=canonical({...request.brief,ingestionChannel:channel,id:"brief_"+request.brief.date+"_"+randomUUID(),version:randomUUID(),sourceType:request.brief.sourceType||"imported_chatgpt",createdAt:new Date().toISOString()});
   const {data,error}=await this.db.rpc("gd_import_brief",{p_owner:this.ownerId,p_payload:brief,p_activate:request.activate,p_key:key,p_hash:hash});
   if(error){if(error.message.includes("IDEMPOTENCY_CONFLICT"))throw new CloudError("相同请求标识不能用于不同内容。",409);throw error;}
   return data;

@@ -17,7 +17,7 @@ export async function POST(request:Request){
   const db=publishDb();const {owner,grant}=await new GrantStore(db).read(token,"access");
   if(grant.resource!==origin+"/mcp"||grant.scope!==scope||grant.clientId!==clientId)throw Error("invalid_grant");
   await new GrantStore(db).reservePublish(owner);
-  const response=await handleMcp(request,body,input=>new CloudRepository(db,owner).import(input));response.headers.set("Cache-Control","no-store");return response;
+  const response=await handleMcp(request,body,input=>new CloudRepository(db,owner).import(input,"chatgpt_publish"));response.headers.set("Cache-Control","no-store");return response;
  }catch(e){
   if(e instanceof Error&&e.message==="rate_limited")return Response.json({error:"rate_limited"},{status:429,headers:{"Retry-After":"60","Cache-Control":"no-store"}});
   if(e instanceof Error&&["storage_unavailable","publish_not_configured"].includes(e.message))return Response.json({error:"temporarily_unavailable"},{status:503});

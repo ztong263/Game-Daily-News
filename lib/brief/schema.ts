@@ -66,6 +66,7 @@ export const briefSchema = contentSchema
   .extend({
     schemaVersion: z.literal(1),
     sourceType: z.enum(["generated","imported_chatgpt","manual"]).optional(),
+    ingestionChannel: z.enum(["chatgpt_publish","json_import"]).optional(),
     createdAt: z.iso.datetime().optional(),
     id: z.string(),
     version: z.string(),

@@ -40,7 +40,7 @@ export async function importBrief(input:unknown){
   const hash=createHash("sha256").update(JSON.stringify({brief:request.brief,activate:request.activate})).digest("hex");
   const previous=doc.imports?.[key];
   if(previous){if(previous.hash!==hash)throw new BriefError("相同请求标识不能用于不同内容。");return {ok:true,briefId:previous.id,date:doc.date,active:doc.brief?.id===previous.id};}
-  const brief=canonical({...request.brief,id:"brief_"+doc.date+"_"+randomUUID(),version:randomUUID(),sourceType:request.brief.sourceType||"imported_chatgpt",createdAt:new Date().toISOString()});
+  const brief=canonical({...request.brief,ingestionChannel:"json_import",id:"brief_"+doc.date+"_"+randomUUID(),version:randomUUID(),sourceType:request.brief.sourceType||"imported_chatgpt",createdAt:new Date().toISOString()});
   const versions=versionsOf(doc);versions.push(brief);
   // The first stored version is active; later imports require an explicit activation choice.
   const active=request.activate||!doc.brief;
