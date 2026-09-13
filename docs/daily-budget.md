@@ -1,5 +1,11 @@
 # Daily API budget
 
+## Whole-operation consent (supersedes per-request confirmation)
+
+Each generation run, complete playback session, and question turn now has its own owner-scoped operation ID. Consent applies only to that operation and allows all its internal reservations above the reminder threshold. Generation checkpoints keep the run ID across polling. Playback keeps its ID across pause/question/resume and ends on full completion or explicit stop. A voice question shares one ID across transcription, research, answer generation and answer speech. A new question or replay gets a fresh ID. Operation records retain the original Sydney accounting day across midnight. Finishing closes further reservations; already-started work remains counted.
+
+After approved operations end, the browser shows the operation cost, its attributed overage, daily total/overage and any still-uncertain reservations. Summaries include estimates, not an invoice. Server generation summaries are persisted for the next page poll; browser playback/question summaries are delivered after pending requests drain. Closing the browser can prevent its final popup, but ledger charges remain. Regular pause does not end playback consent. No new database schema is needed.
+
 ## Development confirmation mode (2026-09-13)
 
 This section supersedes hard-stop descriptions below. USD 0.50 is a reminder, with the estimation margin retained. The generation sublimit is advisory only. Above the current allowance the server returns a confirmation showing booked cost (including pending/estimated amounts) and the requested reservation. Only an explicit browser confirmation increases today's allowance to that projected amount. Later excesses prompt again. Cancelling retains work and does not grant spending permission. Manual retry can reopen a declined prompt. The cloud start path no longer invokes the old three-attempt-limited RPC; it uses owner-scoped optimistic updates and still prevents starting over an active job. Historical attempt counts are retained. No migration or counter reset is necessary.

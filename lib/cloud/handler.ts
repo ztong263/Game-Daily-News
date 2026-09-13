@@ -12,7 +12,14 @@ import {migrateLocalBatch} from "./local-migration";
 import {cloudFailure} from "./errors";
 import {DailyBudget,BudgetConfirmation} from "./budget";
 import {question,transcribe} from "./questions";
+import {budgetOperation,type Operation} from "./budget-operation";
 export async function cloudRequest(request:Request){
+ const id=request.headers.get("x-budget-operation"),path=new URL(request.url).pathname;
+ const kind:Operation["kind"]=path.endsWith("/speech")?"playback":"question";
+ if(id&&/^[0-9a-f-]{36}$/.test(id))return budgetOperation.run({id,kind},()=>cloudRequestImpl(request));
+ return cloudRequestImpl(request);
+}
+async function cloudRequestImpl(request:Request){
  try{
   assertSameOrigin(request);
   const {db,ownerId}=await authenticatedCloud();const repo=new CloudRepository(db,ownerId);
@@ -20,9 +27,12 @@ export async function cloudRequest(request:Request){
   const today=dateInZone(new Date(),process.env.BRIEF_TIMEZONE||"Australia/Sydney");
   const media=new CloudMedia(db,ownerId);
   if(route==="/api/budget/approve"&&method==="POST"){
-   const d=z.object({limit:z.number().positive().max(1000),day:z.iso.date()}).parse(await request.json());
-   const budget=new DailyBudget(db,ownerId);if(d.day!==budget.day)throw new CloudError("日期已变化，请重试。",409);
-   await budget.approve(d.limit);return Response.json({ok:true});
+   const op=z.object({id:z.string().uuid(),kind:z.enum(["generation","playback","question"])}).parse(await request.json());
+   await new DailyBudget(db,ownerId).approveOperation(op);return Response.json({ok:true});
+  }
+  if(route==="/api/budget/finish"&&method==="POST"){
+   const op=z.object({id:z.string().uuid(),kind:z.enum(["playback","question"])}).parse(await request.json());
+   return Response.json(await new DailyBudget(db,ownerId).finishOperation(op));
   }
   if(route==="/api/budget"&&method==="GET")return Response.json(await new DailyBudget(db,ownerId).status(),{headers:{"Cache-Control":"no-store"}});
   if(route==="/api/question"&&method==="POST"){
@@ -75,7 +85,7 @@ export async function cloudRequest(request:Request){
   }else throw new CloudError("接口不存在或不支持此操作。",404);
   return Response.json(result,{headers:{"Cache-Control":"private, no-store"}});
  }catch(e){
-  if(e instanceof BudgetConfirmation)return Response.json({error:e.message,budgetConfirmation:{used:e.used,amount:e.amount,limit:e.limit,day:dateInZone(new Date(),"Australia/Sydney")}},{status:402,headers:{"Cache-Control":"no-store"}});
+  if(e instanceof BudgetConfirmation)return Response.json({error:e.message,budgetConfirmation:{used:e.used,amount:e.amount,operation:e.operation}},{status:402,headers:{"Cache-Control":"no-store"}});
   if(e instanceof z.ZodError)return Response.json({error:"内容格式不正确。",issues:e.issues.map(i=>({path:i.path,message:i.message}))},{status:400});
   const failure=cloudFailure(e);
   return Response.json({error:failure.error},{status:failure.status,headers:{"Cache-Control":"no-store"}});

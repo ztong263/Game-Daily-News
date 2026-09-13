@@ -11,11 +11,12 @@ type Job = {
   brief?: MorningBrief;
   fallback?: MorningBrief;
   cloudPending?: boolean;
+  budgetSummary?: import("@/lib/budget-fetch").BudgetSummary;
 };
 import { categoryLabels as labels } from "@/lib/brief/labels";
 import { NewsCard } from "@/components/NewsCard";
 import { EditorialSettings } from "@/components/EditorialSettings";
-import {budgetFetch,resetBudgetDeclines} from "@/lib/budget-fetch";
+import {budgetFetch,resetBudgetDeclines,showBudgetSummary} from "@/lib/budget-fetch";
 import {DailyBudget} from "@/components/DailyBudget";
 import { BriefDatePicker } from "@/components/BriefDatePicker";
 import {BriefManager} from "@/components/BriefManager";
@@ -121,6 +122,7 @@ export default function Home() {
         const data: Job = await response.json();
         pollDelay=data.status==="ready"?60000:4000;
         if (!alive) return;
+        if(data.budgetSummary?.id)showBudgetSummary(data.budgetSummary.id,"本次早报生成",data.budgetSummary);
         setJob((old) =>
           old?.brief?.version && old.brief.version === data.brief?.version && old.status===data.status && old.stage===data.stage && old.error===data.error
             ? old

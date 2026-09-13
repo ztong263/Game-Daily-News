@@ -9,7 +9,8 @@ import {generateBrief} from "../editorial/generate";
 import {canonical} from "../server/brief-versions";
 import {pipelineBudget} from "../editorial/budget";
 import {generationError} from "./generation-error";
-import {BudgetConfirmation} from "./budget";
+import {BudgetConfirmation,DailyBudget} from "./budget";
+import {budgetOperation} from "./budget-operation";
 export async function startGeneration(db:SupabaseClient,ownerId:string,date:string){
  if(pipelineBudget().offline)throw new CloudError("当前模式不生成新闻。",409);
  const repo=new CloudRepository(db,ownerId);
@@ -29,7 +30,7 @@ export async function advanceGeneration(db:SupabaseClient,ownerId:string,date:st
  const storage=new CloudPipeline(db,ownerId,payload.runId,payload.preferences);
  try{
   if(Date.now()-payload.startedAt>86400000)throw Error("GENERATION_EXPIRED");
-  const result=await pipelineStorage.run(storage,()=>generateBrief(date,process.env.BRIEF_TIMEZONE||"Australia/Sydney",payload.history,async stage=>{payload.stage=stage;}));
+  const result=await budgetOperation.run({id:payload.runId,kind:"generation"},()=>pipelineStorage.run(storage,()=>generateBrief(date,process.env.BRIEF_TIMEZONE||"Australia/Sydney",payload.history,async stage=>{payload.stage=stage;})));
   // The publication is idempotent even if the final job-status write is interrupted.
   const publicationKey="publication:"+payload.runId;
   let brief=await storage.get(publicationKey);
@@ -42,6 +43,7 @@ export async function advanceGeneration(db:SupabaseClient,ownerId:string,date:st
   if(e instanceof BudgetConfirmation){payload.stage="等待确认超出预算后继续";throw e;}
   if(!(e instanceof PipelinePending)){status="failed";errorCode=e instanceof Error&&e.message==="UNCERTAIN_RESPONSE_START"?"UNCERTAIN_RESPONSE_START":"GENERATION_FAILED";payload.failureMessage=generationError(e);payload.stage="生成未完成，已保存进度和现有早报";}
  }finally{
+  if(status!=="running")payload.budgetSummary={id:payload.runId,...await new DailyBudget(db,ownerId).finishOperation({id:payload.runId,kind:"generation"})};
   const saved=await db.from("gd_jobs").update({status,payload,lease_until:null,error_code:errorCode,updated_at:new Date().toISOString()}).eq("owner_id",ownerId).eq("id",job.id).eq("payload->>step_token",token);
   if(saved.error)throw saved.error;
  }

@@ -14,7 +14,7 @@ export class CloudRepository{
   const task=await this.db.from("gd_jobs").select("status,payload,attempts,updated_at,error_code").eq("owner_id",this.ownerId).eq("job_key","brief:"+date).maybeSingle();
   if(task.error)throw task.error;
   const running=task.data&&["queued","running"].includes(task.data.status);
-  return {date,status:running?"generating":brief?"ready":task.data?.status==="failed"?"failed":"missing",stage:running?task.data?.payload.stage:brief?"早报已准备好":"等待准备",attempts:task.data?.attempts||0,updatedAt:task.data?Date.parse(task.data.updated_at):brief?Date.parse(brief.generatedAt):0,brief,cloudPending:!!running,error:task.data?.status==="failed"?(task.data.payload?.failureMessage||"生成未完成，旧任务未记录具体原因。已有早报已保留；重新生成可能产生费用。"):undefined};
+  return {date,status:running?"generating":brief?"ready":task.data?.status==="failed"?"failed":"missing",stage:running?task.data?.payload.stage:brief?"早报已准备好":"等待准备",attempts:task.data?.attempts||0,updatedAt:task.data?Date.parse(task.data.updated_at):brief?Date.parse(brief.generatedAt):0,brief,cloudPending:!!running,budgetSummary:task.data?.payload?.budgetSummary,error:task.data?.status==="failed"?(task.data.payload?.failureMessage||"生成未完成，旧任务未记录具体原因。已有早报已保留；重新生成可能产生费用。"):undefined};
  }
  async dates(){
   const dates:string[]=[];
