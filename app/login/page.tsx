@@ -14,7 +14,8 @@ export default function Login(){
    const client=createBrowserClient(url,key);
    const {error}=await client.auth.signInWithPassword({email:String(fields.get("email")),password:String(fields.get("password"))});
    if(error)throw Error("登录失败，请检查邮箱和密码。");
-   router.replace("/");router.refresh();
+   const next=new URLSearchParams(window.location.search).get("next");
+   router.replace(next?.startsWith("/connect/authorize?")?next:"/");router.refresh();
   }catch(e){setError(e instanceof Error?e.message:"登录失败");setBusy(false);}
  }} style={{display:"grid",gap:16}}>
  <label>邮箱<input name="email" type="email" autoComplete="username" required style={{width:"100%"}}/></label>
