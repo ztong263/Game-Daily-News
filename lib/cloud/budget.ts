@@ -18,12 +18,9 @@ export function textReserve(input:unknown,output:number,calls=0){return textCost
 // rather than releasing a reservation on an unobservable actual cost.
 export function speechReserve(text:string){return round(Math.max(.003,[...text].length*.00012));}
 export function totals(l:Ledger){const e=Object.values(l.entries);return {used:round(e.reduce((n,e)=>n+e.amount,0)),generation:round(e.filter(e=>e.group==="generation").reduce((n,e)=>n+e.amount,0)),pending:round(e.filter(e=>!e.settled).reduce((n,e)=>n+e.amount,0))};}
-export function reserveEntry(l:Ledger,id:string,amount:number,group:Entry["group"],approved=false){
+export function reserveEntry(l:Ledger,id:string,amount:number,group:Entry["group"]){
  if(l.entries[id])throw new CloudError("这次请求已经登记，请等待结果，勿重复发送。",409);
  if(!Number.isFinite(amount)||amount<=0)throw Error("Invalid budget reservation");
- const t=totals(l);
- const limit=l.approvedLimit??DAILY_LIMIT-SAFETY_MARGIN;
- if(!approved&&t.used+amount>limit+1e-9)throw new BudgetConfirmation(t.used,amount,round(t.used+amount));
  l.entries[id]={amount:round(amount),group,settled:false};
 }
 export class DailyBudget{
@@ -78,9 +75,9 @@ export class DailyBudget{
  async reserve(amount:number,group:Entry["group"],id:string=randomUUID()){
   const op=budgetOperation.getStore(),state=op?await this.operation(op):null;
   if(state?.finished)throw new CloudError("这次操作已结束，请重新开始。",409);
-  await this.change(l=>{reserveEntry(l,id,amount,group,!!state?.approved);if(op)l.entries[id].operationId=op.id;});return id;
+  await this.change(l=>{reserveEntry(l,id,amount,group);if(op)l.entries[id].operationId=op.id;});return id;
  }
  async settle(id:string,amount:number){if(!Number.isFinite(amount)||amount<0)throw Error("Invalid settlement");await this.change(l=>{const e=l.entries[id];if(!e)throw Error("Missing reservation");if(e.settled)return;e.amount=round(amount);e.settled=true;});}
  async approve(limit:number){await this.change(l=>{l.approvedLimit=Math.max(l.approvedLimit??DAILY_LIMIT-SAFETY_MARGIN,limit);});}
- async status(){const l=await this.load(),t=totals(l);return {date:this.day,limit:DAILY_LIMIT,approvedLimit:l.approvedLimit??DAILY_LIMIT-SAFETY_MARGIN,safetyMargin:SAFETY_MARGIN,...t,remaining:Math.max(0,round((l.approvedLimit??DAILY_LIMIT-SAFETY_MARGIN)-t.used)),warning:t.used>=.40};}
+ async status(){const l=await this.load(),t=totals(l);return {date:this.day,limit:DAILY_LIMIT,approvedLimit:l.approvedLimit??DAILY_LIMIT-SAFETY_MARGIN,safetyMargin:SAFETY_MARGIN,...t,remaining:Math.max(0,round(DAILY_LIMIT-t.used)),warning:t.used>=.40};}
 }
