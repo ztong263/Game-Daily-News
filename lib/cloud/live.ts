@@ -4,6 +4,8 @@ import {CloudError} from "./auth-policy";
 import {api} from "../server/openai";
 import {hostInstructions} from "../realtime/language";
 import {pipelineBudget} from "../editorial/budget";
+import OpenAI from "openai";
+import {cloudFailure} from "./errors";
 export async function cloudSession(media:CloudMedia,input:unknown){
  const d=z.object({date:z.iso.date(),version:z.string().max(200),briefId:z.string().max(200),sdp:z.string().startsWith("v=").max(100000),language:z.enum(["zh","en"]).default("zh")}).parse(input);
  if(pipelineBudget().mode==="mock")throw new CloudError("模拟模式不能连接语音。",409);
@@ -11,7 +13,12 @@ export async function cloudSession(media:CloudMedia,input:unknown){
  if(!process.env.OPENAI_API_KEY)throw new CloudError("语音服务尚未配置。",503);
  const form=new FormData();form.set("sdp",d.sdp);form.set("session",JSON.stringify({type:"realtime",model:process.env.REALTIME_MODEL||"gpt-realtime-2.1",instructions:hostInstructions(brief,d.language),audio:{input:{transcription:{model:"gpt-4o-mini-transcribe"},turn_detection:null},output:{voice:process.env.REALTIME_VOICE||"marin"}}}));
  const response=await fetch("https://api.openai.com/v1/realtime/calls",{method:"POST",headers:{Authorization:"Bearer "+process.env.OPENAI_API_KEY},body:form,signal:AbortSignal.timeout(30000)});
- if(!response.ok)throw new CloudError("语音连接失败，请稍后重试。",502);
+ if(!response.ok){
+  const body=await response.json().catch(()=>null);
+  const upstream=new OpenAI.APIError(response.status,{code:body?.error?.code},"",new Headers());
+  const failure=cloudFailure(upstream);
+  throw new CloudError("语音问答连接失败："+failure.error,failure.status);
+ }
  return new Response(await response.text(),{headers:{"Content-Type":"application/sdp","Cache-Control":"no-store"}});
 }
 export async function cloudSearch(media:CloudMedia,input:unknown){

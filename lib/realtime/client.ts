@@ -385,6 +385,7 @@ export class Radio {
     });
   }
   async mute() {
+    if(this.view.connecting||this.awaitingTranscript)return;
     if(this.cachedNarration&&this.view.muted)this.pause();
     if(this.cachedNarration&&!this.pc){this.pause();this.view.connected=false;await this.connect(true);if(!this.view.connected)return;}
     if (!this.view.connected || this.awaitingTranscript) return;

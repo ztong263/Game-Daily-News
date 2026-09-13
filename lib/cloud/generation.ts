@@ -8,6 +8,7 @@ import {pipelineStorage,PipelinePending} from "../editorial/storage-context";
 import {generateBrief} from "../editorial/generate";
 import {canonical} from "../server/brief-versions";
 import {pipelineBudget} from "../editorial/budget";
+import {generationError} from "./generation-error";
 export async function startGeneration(db:SupabaseClient,ownerId:string,date:string){
  if(pipelineBudget().offline)throw new CloudError("当前模式不生成新闻。",409);
  const repo=new CloudRepository(db,ownerId);
@@ -34,7 +35,7 @@ export async function advanceGeneration(db:SupabaseClient,ownerId:string,date:st
   if(published.error)throw published.error;
   status="completed";payload.stage="早报已准备好";
  }catch(e){
-  if(!(e instanceof PipelinePending)){status="failed";errorCode=e instanceof Error&&e.message==="UNCERTAIN_RESPONSE_START"?"UNCERTAIN_RESPONSE_START":"GENERATION_FAILED";payload.stage="生成未完成，已保存进度和现有早报";}
+  if(!(e instanceof PipelinePending)){status="failed";errorCode=e instanceof Error&&e.message==="UNCERTAIN_RESPONSE_START"?"UNCERTAIN_RESPONSE_START":"GENERATION_FAILED";payload.failureMessage=generationError(e);payload.stage="生成未完成，已保存进度和现有早报";}
  }finally{
   const saved=await db.from("gd_jobs").update({status,payload,lease_until:null,error_code:errorCode,updated_at:new Date().toISOString()}).eq("owner_id",ownerId).eq("id",job.id).eq("payload->>step_token",token);
   if(saved.error)throw saved.error;

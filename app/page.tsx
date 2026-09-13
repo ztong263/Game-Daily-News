@@ -375,7 +375,7 @@ export default function Home() {
             }
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            disabled={!voice.connected}
+            disabled={!brief || voice.connecting}
           />
           <button
             type="button"
@@ -383,7 +383,7 @@ export default function Home() {
             aria-label={voice.muted ? "开始录音" : "结束录音并发送"}
             title={voice.muted ? "开始录音" : "结束录音并发送"}
             aria-pressed={!voice.muted}
-            disabled={!voice.connected}
+            disabled={!brief || voice.connecting}
             onClick={() => radio.current?.mute()}
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
@@ -393,7 +393,7 @@ export default function Home() {
           <button
             className="send"
             aria-label="发送问题"
-            disabled={!voice.connected || !input.trim()}
+            disabled={!brief || voice.connecting || !input.trim()}
           >
             ↑
           </button>
