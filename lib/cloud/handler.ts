@@ -10,7 +10,7 @@ import {startGeneration,advanceGeneration} from "./generation";
 import {after} from "next/server";
 import {migrateLocalBatch} from "./local-migration";
 import {cloudFailure} from "./errors";
-import {DailyBudget} from "./budget";
+import {DailyBudget,BudgetConfirmation} from "./budget";
 import {question,transcribe} from "./questions";
 export async function cloudRequest(request:Request){
  try{
@@ -19,6 +19,11 @@ export async function cloudRequest(request:Request){
   const url=new URL(request.url),route=url.pathname.replace(/^\/api\/cloud(?=\/)/,""),method=request.method;
   const today=dateInZone(new Date(),process.env.BRIEF_TIMEZONE||"Australia/Sydney");
   const media=new CloudMedia(db,ownerId);
+  if(route==="/api/budget/approve"&&method==="POST"){
+   const d=z.object({limit:z.number().positive().max(1000),day:z.iso.date()}).parse(await request.json());
+   const budget=new DailyBudget(db,ownerId);if(d.day!==budget.day)throw new CloudError("日期已变化，请重试。",409);
+   await budget.approve(d.limit);return Response.json({ok:true});
+  }
   if(route==="/api/budget"&&method==="GET")return Response.json(await new DailyBudget(db,ownerId).status(),{headers:{"Cache-Control":"no-store"}});
   if(route==="/api/question"&&method==="POST"){
    const body=await request.text();if(Buffer.byteLength(body)>20000)throw new CloudError("问题过长。",413);
@@ -70,6 +75,7 @@ export async function cloudRequest(request:Request){
   }else throw new CloudError("接口不存在或不支持此操作。",404);
   return Response.json(result,{headers:{"Cache-Control":"private, no-store"}});
  }catch(e){
+  if(e instanceof BudgetConfirmation)return Response.json({error:e.message,budgetConfirmation:{used:e.used,amount:e.amount,limit:e.limit,day:dateInZone(new Date(),"Australia/Sydney")}},{status:402,headers:{"Cache-Control":"no-store"}});
   if(e instanceof z.ZodError)return Response.json({error:"内容格式不正确。",issues:e.issues.map(i=>({path:i.path,message:i.message}))},{status:400});
   const failure=cloudFailure(e);
   return Response.json({error:failure.error},{status:failure.status,headers:{"Cache-Control":"no-store"}});

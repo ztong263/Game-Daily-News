@@ -1,5 +1,9 @@
 # Daily API budget
 
+## Development confirmation mode (2026-09-13)
+
+This section supersedes hard-stop descriptions below. USD 0.50 is a reminder, with the estimation margin retained. The generation sublimit is advisory only. Above the current allowance the server returns a confirmation showing booked cost (including pending/estimated amounts) and the requested reservation. Only an explicit browser confirmation increases today's allowance to that projected amount. Later excesses prompt again. Cancelling retains work and does not grant spending permission. Manual retry can reopen a declined prompt. The cloud start path no longer invokes the old three-attempt-limited RPC; it uses owner-scoped optimistic updates and still prevents starting over an active job. Historical attempt counts are retained. No migration or counter reset is necessary.
+
 The authenticated cloud app enforces a shared estimated USD 0.50 daily budget per owner, using Australia/Sydney calendar dates. USD 0.03 is withheld as an estimation margin; generation has a USD 0.20 sublimit. Listening and questions can use the unused total, including generation money when a brief is imported.
 
 ## Accounting

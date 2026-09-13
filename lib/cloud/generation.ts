@@ -9,13 +9,17 @@ import {generateBrief} from "../editorial/generate";
 import {canonical} from "../server/brief-versions";
 import {pipelineBudget} from "../editorial/budget";
 import {generationError} from "./generation-error";
+import {BudgetConfirmation} from "./budget";
 export async function startGeneration(db:SupabaseClient,ownerId:string,date:string){
  if(pipelineBudget().offline)throw new CloudError("当前模式不生成新闻。",409);
  const repo=new CloudRepository(db,ownerId);
  const preferences=await repo.preferences();
  const history:string[]=[];for(const day of (await repo.dates()).filter(d=>d<date).slice(0,14)){const brief=(await repo.status(day)).brief;brief?.items.forEach(i=>history.push(i.headline+" "+i.sources.map(s=>s.url).join(" ")));}
- const {error}=await db.rpc("gd_start_generation",{p_owner:ownerId,p_date:date,p_payload:{runId:randomUUID(),date,preferences,history,stage:"正在准备检索",startedAt:Date.now()}});
- if(error){if(error.message.includes("DAILY_LIMIT"))throw new CloudError("今日已达三次生成上限。",429);throw error;}
+ const old=await db.from("gd_jobs").select("status,attempts,updated_at").eq("owner_id",ownerId).eq("job_key","brief:"+date).maybeSingle();if(old.error)throw old.error;
+ if(old.data&&["queued","running"].includes(old.data.status))return {accepted:true};
+ const values={status:"queued",payload:{runId:randomUUID(),date,preferences,history,stage:"正在准备检索",startedAt:Date.now()},attempts:(old.data?.attempts||0)+1,lease_until:null,error_code:null,updated_at:new Date().toISOString()};
+ const saved=old.data?await db.from("gd_jobs").update(values).eq("owner_id",ownerId).eq("job_key","brief:"+date).eq("updated_at",old.data.updated_at).eq("status",old.data.status):await db.from("gd_jobs").insert({...values,owner_id:ownerId,job_key:"brief:"+date,kind:"brief"});
+ if(saved.error&&saved.error.code!=="23505")throw saved.error;
  return {accepted:true};
 }
 export async function advanceGeneration(db:SupabaseClient,ownerId:string,date:string){
@@ -35,6 +39,7 @@ export async function advanceGeneration(db:SupabaseClient,ownerId:string,date:st
   if(published.error)throw published.error;
   status="completed";payload.stage="早报已准备好";
  }catch(e){
+  if(e instanceof BudgetConfirmation){payload.stage="等待确认超出预算后继续";throw e;}
   if(!(e instanceof PipelinePending)){status="failed";errorCode=e instanceof Error&&e.message==="UNCERTAIN_RESPONSE_START"?"UNCERTAIN_RESPONSE_START":"GENERATION_FAILED";payload.failureMessage=generationError(e);payload.stage="生成未完成，已保存进度和现有早报";}
  }finally{
   const saved=await db.from("gd_jobs").update({status,payload,lease_until:null,error_code:errorCode,updated_at:new Date().toISOString()}).eq("owner_id",ownerId).eq("id",job.id).eq("payload->>step_token",token);

@@ -7,7 +7,7 @@ import {pipelineBudget} from "../editorial/budget";
 import {CloudRepository} from "./repository";
 import {CloudError} from "./auth-policy";
 import {cloudFailure} from "./errors";
-import {DailyBudget,BUDGET_MODEL,textReserve,textCost,speechReserve} from "./budget";
+import {DailyBudget,BudgetConfirmation,BUDGET_MODEL,textReserve,textCost,speechReserve} from "./budget";
 export const AUDIO_BUCKET="game-daily-audio";
 export class CloudMedia{
  constructor(readonly db:SupabaseClient,readonly ownerId:string){}
@@ -68,6 +68,7 @@ export class CloudMedia{
    const saved=await this.db.from("gd_audio").upsert({owner_id:this.ownerId,cache_key:key,object_path:objectPath,metadata:{...data,text,model,voice,characters:[...text].length,bytes:bytes.length,ttsUsage:null}},{onConflict:"owner_id,cache_key"});if(saved.error)throw saved.error;
    completed=true;return {url:"/api/speech?key="+key,text,cacheHit:false};
   }catch(error){
+   if(error instanceof BudgetConfirmation)throw error;
    const failure=cloudFailure(error);
    // Only fixed labels are logged. Never include messages, scripts, IDs or keys.
    const kind=error instanceof TypeError?"TypeError":error instanceof Error?"Error":"Other";

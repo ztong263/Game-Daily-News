@@ -1,3 +1,4 @@
+import {budgetFetch,resetBudgetDeclines} from "../budget-fetch";
 import { paragraphs, type MorningBrief } from "../brief/schema";
 import { hostInstructions, languageInstruction, type BroadcastLanguage } from "./language";
 import {recordingWav} from "./recording";
@@ -41,7 +42,7 @@ export class Radio {
     this.pause();const epoch=this.questionEpoch;this.view.connected=true;this.view.error=null;
     this.onText("user",text,crypto.randomUUID());this.act({type:"answer"});
     try{
-      const r=await fetch("/api/question",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({date:this.brief.date,version:this.brief.version,language:this.language,query:text,history:this.questionHistory.slice(-6)})});
+      const r=await budgetFetch("/api/question",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({date:this.brief.date,version:this.brief.version,language:this.language,query:text,history:this.questionHistory.slice(-6)})});
       const result=await r.json();if(epoch!==this.questionEpoch)return;if(!r.ok)throw Error(result.error);
       this.onText("assistant",result.text,crypto.randomUUID());this.questionHistory.push({role:"user",text:text.slice(0,2000)},{role:"assistant",text:result.text.slice(0,2000)});
       if(result.audioError)this.view.error=result.audioError;
@@ -64,7 +65,7 @@ export class Radio {
         try{
           const audio=await recordingWav(new Blob(chunks,{type:recorder.mimeType}));if(epoch!==this.questionEpoch)return;
           const form=new FormData();form.set("audio",audio,"question.wav");
-          const r=await fetch("/api/transcribe",{method:"POST",body:form});const result=await r.json();if(epoch!==this.questionEpoch)return;if(!r.ok)throw Error(result.error);
+          const r=await budgetFetch("/api/transcribe",{method:"POST",body:form});const result=await r.json();if(epoch!==this.questionEpoch)return;if(!r.ok)throw Error(result.error);
           if(!result.text?.trim())throw Error("没有识别到问题，请重新录音。");await this.text(result.text);
         }catch(e){if(epoch!==this.questionEpoch)return;this.view.error=e instanceof Error?e.message:"录音失败";this.act({type:"pause"});}
       })();};
@@ -79,7 +80,7 @@ export class Radio {
     const key=`${language}:${index}`;
     const existing=this.narrationRequests.get(key);if(existing)return existing;
     const request=(async()=>{
-      const response=await fetch("/api/speech",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({date:this.brief.date,version:this.brief.version,index,language})});
+      const response=await budgetFetch("/api/speech",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({date:this.brief.date,version:this.brief.version,index,language})});
       const result=await response.json();if(!response.ok)throw Error(result.error);
       return result as {url:string;text:string};
     })();
@@ -379,6 +380,7 @@ export class Radio {
     this.answerId = null;
   }
   resume() {
+    resetBudgetDeclines();
     if(this.budgetedQuestions)this.cancelBudgetQuestion();
     if(this.cachedNarration){void this.playNarration();return;}
     if (!this.view.muted || this.awaitingTranscript) return;
@@ -437,6 +439,7 @@ export class Radio {
     });
   }
   async mute() {
+    resetBudgetDeclines();
     if(this.budgetedQuestions){await this.budgetMute();return;}
     if(this.view.connecting||this.awaitingTranscript)return;
     if(this.cachedNarration&&this.view.muted)this.pause();

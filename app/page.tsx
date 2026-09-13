@@ -15,6 +15,7 @@ type Job = {
 import { categoryLabels as labels } from "@/lib/brief/labels";
 import { NewsCard } from "@/components/NewsCard";
 import { EditorialSettings } from "@/components/EditorialSettings";
+import {budgetFetch,resetBudgetDeclines} from "@/lib/budget-fetch";
 import {DailyBudget} from "@/components/DailyBudget";
 import { BriefDatePicker } from "@/components/BriefDatePicker";
 import {BriefManager} from "@/components/BriefManager";
@@ -128,7 +129,7 @@ export default function Home() {
         if (data.status !== "missing") setLoadError("");
         // Advance only an explicitly started cloud job; ordinary reads never start generation.
         if(data.cloudPending){
-          const step=await fetch("/api/brief/advance",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({date:data.date})});
+          const step=await budgetFetch("/api/brief/advance",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({date:data.date})});
           if(!step.ok)throw Error("生成进度暂时无法更新，稍后会重试。");
         }
       } catch (e) {
@@ -163,9 +164,10 @@ export default function Home() {
     };
   }, [brief?.id, brief?.version]); // eslint-disable-line react-hooks/exhaustive-deps
   async function retry() {
+    resetBudgetDeclines();
     setLoadError("");
     if(selectedDate){setReloadDate(v=>v+1);return;}
-    const r = await fetch("/api/brief/today", { method: "POST" });
+    const r = await budgetFetch("/api/brief/today", { method: "POST" });
     if (!r.ok) setLoadError((await r.json()).error);
     else
       setJob((j) =>

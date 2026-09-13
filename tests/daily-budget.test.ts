@@ -5,9 +5,10 @@ import {DailyBudget,reserveEntry,totals,type Ledger} from "../lib/cloud/budget";
 import {budgetFixture} from "./budget-fixture";
 test("daily budget enforces generation reserve, total headroom, pending charges and idempotency",()=>{
  const l:Ledger={revision:0,entries:{}};
- reserveEntry(l,"one",.2,"generation");assert.throws(()=>reserveEntry(l,"two",.001,"generation"));
+ reserveEntry(l,"one",.2,"generation");
  reserveEntry(l,"two",.26,"listening");assert.throws(()=>reserveEntry(l,"three",.02,"listening"));
  assert.throws(()=>reserveEntry(l,"one",.01,"listening"));assert.equal(totals(l).pending,.46);
+ l.approvedLimit=.6;reserveEntry(l,"confirmed",.1,"generation");assert.equal(totals(l).used,.56);
 });
 test("concurrent requests cannot overspend; settlement and new Sydney-day ledger are isolated",async()=>{
  const old=globalThis.fetch,mock=budgetFixture();globalThis.fetch=async(i,init)=>{const r=mock(new URL(String(i)),init);if(!r)throw Error("Unexpected request");return r;};
