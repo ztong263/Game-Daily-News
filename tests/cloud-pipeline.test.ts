@@ -6,11 +6,14 @@ import {defaultPreferences} from "../lib/editorial/preferences";
 import {PipelinePending,pipelineStorage} from "../lib/editorial/storage-context";
 import {editorialResponse} from "../lib/editorial/response";
 import {fingerprint} from "../lib/cloud/fingerprint";
+import {budgetFixture} from "./budget-fixture";
 test("background response resumes by id and completed checkpoints incur no new API calls",async()=>{
  const original=globalThis.fetch,key=process.env.OPENAI_API_KEY;process.env.OPENAI_API_KEY="test-only";
  const cache=new Map<string,unknown>();let creates=0,retrieves=0;
+ const budgetMock=budgetFixture();
  globalThis.fetch=async(input,init)=>{
   const url=new URL(String(input));
+  const budgetResult=budgetMock(url,init);if(budgetResult)return budgetResult;
   if(url.hostname==="api.openai.com"){
    if(init?.method==="POST"){creates++;assert.equal(JSON.parse(String(init.body)).background,true);return Response.json({object:"response",id:"resp_test",status:"in_progress",output:[]});}
    retrieves++;return Response.json({object:"response",id:"resp_test",status:"completed",output:[{type:"message",content:[{type:"output_text",text:"Synthetic result",annotations:[]}]}]});

@@ -15,6 +15,16 @@ const brief: MorningBrief = {
   todaysSignal: { text: "Test signal", itemIds: [] },
   editorNote: "",
 };
+test("budgeted questions speak answers, preserve narration progress and ignore replies after stop",async()=>{
+ const original=globalThis.fetch;let played=0;let delayed=false;let finish:(r:Response)=>void=()=>{};
+ const audio={srcObject:null,src:"",play:async()=>{played++;},pause(){},onended:null as null|(()=>void)};
+ globalThis.fetch=async(url)=>{assert.equal(url,"/api/question");if(delayed)return new Promise(r=>{finish=r;});return Response.json({text:"Answer",audioUrl:"/answer.mp3"});};
+ const radio=new Radio(brief,()=>{},()=>{},audio as unknown as HTMLAudioElement,"zh",true,true);
+ try{
+  await radio.text("Explain this news");assert.equal(played,1);assert.equal(radio.view.cursor.index,0);audio.onended?.();assert.equal(radio.view.cursor.mode,"paused");
+  delayed=true;const pending=radio.text("Another question");radio.stop();finish(Response.json({text:"Late",audioUrl:"/late.mp3"}));await pending;assert.equal(played,1);
+ }finally{radio.stop();globalThis.fetch=original;}
+});
 test("cached narration never connects realtime and ignores a response after pause",async()=>{
  const original=globalThis.fetch;let finish:(r:Response)=>void=()=>{};let played=0;const messages:string[]=[];
  const audio={srcObject:null,src:"",play:async()=>{played++;},pause(){},onended:null as null|(()=>void)};

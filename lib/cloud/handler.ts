@@ -10,6 +10,8 @@ import {startGeneration,advanceGeneration} from "./generation";
 import {after} from "next/server";
 import {migrateLocalBatch} from "./local-migration";
 import {cloudFailure} from "./errors";
+import {DailyBudget} from "./budget";
+import {question,transcribe} from "./questions";
 export async function cloudRequest(request:Request){
  try{
   assertSameOrigin(request);
@@ -17,6 +19,14 @@ export async function cloudRequest(request:Request){
   const url=new URL(request.url),route=url.pathname.replace(/^\/api\/cloud(?=\/)/,""),method=request.method;
   const today=dateInZone(new Date(),process.env.BRIEF_TIMEZONE||"Australia/Sydney");
   const media=new CloudMedia(db,ownerId);
+  if(route==="/api/budget"&&method==="GET")return Response.json(await new DailyBudget(db,ownerId).status(),{headers:{"Cache-Control":"no-store"}});
+  if(route==="/api/question"&&method==="POST"){
+   const body=await request.text();if(Buffer.byteLength(body)>20000)throw new CloudError("问题过长。",413);
+   return Response.json(await question(media,JSON.parse(body)),{headers:{"Cache-Control":"no-store"}});
+  }
+  if(route==="/api/transcribe"&&method==="POST")return Response.json(await transcribe(media,request));
+  // Do not issue a browser-owned paid session that can bypass the server ledger.
+  if(route==="/api/realtime/session"||route==="/api/realtime/search")throw new CloudError("预算模式已切换为逐次问答，请刷新网页后重试。",409);
   if(route==="/api/migrate-local"&&method==="POST"){
    if(!["127.0.0.1","localhost","[::1]"].includes(url.hostname))throw new CloudError("仅允许在本机迁移。",403);
    const {offset}=z.object({offset:z.number().int().nonnegative()}).parse(await request.json());

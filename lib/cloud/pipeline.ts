@@ -7,6 +7,7 @@ import {citationKey} from "../brief/source-url";
 import {CloudMedia} from "./media";
 import {PipelinePending,type PipelineStorage,type ResearchValue} from "../editorial/storage-context";
 import type {EditorialPreferences} from "../editorial/preferences";
+import {DailyBudget,BUDGET_MODEL,textReserve,textCost} from "./budget";
 export class CloudPipeline implements PipelineStorage{
  constructor(readonly db:SupabaseClient,readonly ownerId:string,readonly runId:string,readonly snapshot:EditorialPreferences){}
  async get(key:string){const {data,error}=await this.db.from("gd_pipeline_cache").select("payload,expires_at").eq("owner_id",this.ownerId).eq("cache_key",key).maybeSingle();if(error)throw error;if(!data||data.expires_at&&Date.parse(data.expires_at)<Date.now())return null;return data.payload;}
@@ -31,20 +32,25 @@ export class CloudPipeline implements PipelineStorage{
   await new CloudMedia(this.db,this.ownerId).usage(r?.id||this.runId+":"+stage+(cacheHit?":cache":""),stage,r?.model||"none",r?.usage??null,{date,cacheHit,status:r?.status,usage:r?.usage},r?.output?.filter(o=>o.type==="web_search_call").length||0);
  }
  async response(params:ResponseCreateParamsNonStreaming):Promise<Response>{
+  params={...params,model:BUDGET_MODEL,service_tier:"default",max_output_tokens:Math.min(params.max_output_tokens||8000,8000)};
   const key="response:"+this.runId+":"+createHash("sha256").update(JSON.stringify(params)).digest("hex");
   const checkpoint=await this.get(key);
   if(checkpoint?.response)return checkpoint.response as Response;
   if(checkpoint?.starting)throw Error("UNCERTAIN_RESPONSE_START");
   let result:Response;
+  const budget=new DailyBudget(this.db,this.ownerId,checkpoint?.budgetDay);
   if(checkpoint?.responseId){result=await api().responses.retrieve(checkpoint.responseId,{},{timeout:20000});}
   else{
+   const calls=params.tools?.some(t=>t.type==="web_search")?Number((params as unknown as {max_tool_calls?:number}).max_tool_calls||3):0;
+   await budget.reserve(textReserve(params,params.max_output_tokens!,calls),"generation",key);
    // Persist intent before the billable call. A crash here must never silently retry it.
-   await this.put(key,{starting:true});
+   await this.put(key,{starting:true,budgetDay:budget.day});
    result=await api().responses.create({...params,background:true,store:true},{timeout:20000});
   }
   if(result.status==="queued"||result.status==="in_progress"){
-   await this.put(key,{responseId:result.id});throw new PipelinePending();
+   await this.put(key,{responseId:result.id,budgetDay:budget.day});throw new PipelinePending();
   }
+  if(result.usage)await budget.settle(key,textCost(result.usage.input_tokens,result.usage.output_tokens,result.output.filter(o=>o.type==="web_search_call").length));
   await this.put(key,{response:result});return result;
  }
 }

@@ -7,6 +7,7 @@ import {pipelineBudget} from "../editorial/budget";
 import {CloudRepository} from "./repository";
 import {CloudError} from "./auth-policy";
 import {cloudFailure} from "./errors";
+import {DailyBudget,BUDGET_MODEL,textReserve,textCost,speechReserve} from "./budget";
 export const AUDIO_BUCKET="game-daily-audio";
 export class CloudMedia{
  constructor(readonly db:SupabaseClient,readonly ownerId:string){}
@@ -22,7 +23,7 @@ export class CloudMedia{
  async speech(input:unknown){
   const data=z.object({date:z.iso.date(),version:z.string().max(200),index:z.number().int().nonnegative(),language:z.enum(["zh","en"])}).parse(input);
   const part=paragraphs(await this.brief(data.date,data.version))[data.index];if(!part)throw new CloudError("段落不存在。",400);
-  const model=process.env.TTS_MODEL||"gpt-4o-mini-tts",voice=process.env.TTS_VOICE||"marin",translationModel=process.env.TRANSLATION_MODEL||"gpt-5.4-mini";
+  const model="gpt-4o-mini-tts",voice=process.env.TTS_VOICE||"marin",translationModel=BUDGET_MODEL;
   const key=createHash("sha256").update(JSON.stringify({version:data.version,text:part.text,language:data.language,model,voice,translationModel,v:1})).digest("hex");
   const hit=await this.cached(key);if(hit)return {url:"/api/speech?key="+key,text:hit.metadata.text,cacheHit:true};
   if(pipelineBudget().offline)throw new CloudError("离线模式只能播放已缓存音频。",409);
@@ -40,8 +41,10 @@ export class CloudMedia{
     if(typeof cachedTranslation.data?.payload?.text==="string"&&cachedTranslation.data.payload.text.trim())text=cachedTranslation.data.payload.text;
     else{
     stage="translation_request";
+    const budget=new DailyBudget(this.db,this.ownerId),reservation=await budget.reserve(textReserve(text,2000),"listening");
     const translated=await api().responses.create({model:translationModel,max_output_tokens:2000,instructions:"Translate this prepared broadcast paragraph into natural spoken English. Preserve facts, caveats and examples. Add nothing. Return only the translation.",input:text},{timeout:90000,maxRetries:0});
     await this.usage(translated.id,"translation",translationModel,translated.usage??null,{date:data.date,version:data.version,index:data.index,usage:translated.usage});
+    if(translated.usage)await budget.settle(reservation,textCost(translated.usage.input_tokens,translated.usage.output_tokens));
     if(translated.status!=="completed"||!translated.output_text.trim())throw new CloudError("翻译未完成，请稍后重试。",502);text=translated.output_text;
     const savedTranslation=await this.db.from("gd_pipeline_cache").upsert({owner_id:this.ownerId,cache_key:"translation:"+key,payload:{text,usage:translated.usage},expires_at:null},{onConflict:"owner_id,cache_key"});
     if(savedTranslation.error)throw savedTranslation.error;
@@ -49,9 +52,12 @@ export class CloudMedia{
    }
    const event=randomUUID();
    stage="speech_request";
+   const speechBudget=new DailyBudget(this.db,this.ownerId),speechAmount=speechReserve(text);
+   const speechReservation=await speechBudget.reserve(speechAmount,"listening");
    const audio=await api().audio.speech.create({model,voice:voice as "marin",input:text,response_format:"mp3",instructions:"Read exactly the provided script in a warm, clear conversational presenter voice. Keep a natural pace; do not add or omit content."},{timeout:120000,maxRetries:0});
    stage="audio_read";
    const bytes=Buffer.from(await audio.arrayBuffer());
+   await speechBudget.settle(speechReservation,speechAmount);
    // Record every successful synthesis, even if the subsequent upload fails.
    stage="usage_save";
    await this.usage(event,"speech",model,null,{date:data.date,version:data.version,index:data.index,language:data.language,characters:[...text].length,bytes:bytes.length,ttsUsage:null});

@@ -1,6 +1,7 @@
 import {z} from "zod";
 import {cloudFailure} from "./errors";
 const reasons:Record<string,string>={
+ "Research token limit":"检索达到输出额度上限，报告未完成，未发布早报。",
  UNCERTAIN_RESPONSE_START:"上次模型请求是否成功尚不确定，已停止自动重发。手动重新生成会启动新任务，可能产生新的费用。",
  GENERATION_EXPIRED:"生成任务已超过有效期，请重新生成。",
  "No traceable sources":"本次检索没有取得可核验的新闻来源，未发布早报。",

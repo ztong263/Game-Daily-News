@@ -1,0 +1,19 @@
+# Daily API budget
+
+The authenticated cloud app enforces a shared estimated USD 0.50 daily budget per owner, using Australia/Sydney calendar dates. USD 0.03 is withheld as an estimation margin; generation has a USD 0.20 sublimit. Listening and questions can use the unused total, including generation money when a brief is imported.
+
+## Accounting
+
+Before each paid request, reserve a conservative estimate in an owner-scoped daily row in gd_pipeline_cache. A revision compare-and-swap prevents concurrent tabs from spending the same balance. Unknown outcomes keep their reservations, without automatic expiry or refunds. Returned text usage settles once using input/output token counts and search-call counts, including incomplete responses. Cached playback and completed response checkpoints bypass new reservations.
+
+Prices checked against https://developers.openai.com/api/docs/pricing and the GPT-5.4-mini model page on 2026-09-13: text input $0.75/M, output $4.50/M, search $0.01/call plus tokens. Cloud text generation/translation/questions use gpt-5.4-mini at standard service tier. This intentionally replaces the expensive Astra final-generation default in cloud mode. The old local filesystem generator is not budget-controlled.
+
+Text reservations count UTF-8 bytes plus overhead and a conservative search allowance; built-in search content is not an exact preflight token count. Actual returned usage is charged even when it exceeds the estimate. Binary gpt-4o-mini-tts is estimated conservatively at $0.00012/character, minimum $0.003/request. The estimate remains charged because the binary response exposes no actual token total. Transcription charges a conservative $0.01 per recording, with server validation of mono 16kHz PCM WAV length at no more than 46 seconds (client auto-stop 45 seconds). These are protective estimates, not invoice amounts or an absolute provider billing guarantee.
+
+Existing same-day usage is imported into the first ledger using billing fields only, never content. Unknown historical models or missing usage conservatively consume the daily allowance rather than being treated as free. Operations are attributed to the Sydney day on which their reservation was created, including a request completing after midnight. Other applications using the same API key are outside this ledger.
+
+## Question flow
+
+Cloud UI now records locally, sends the recording for server-controlled transcription, then obtains a text response and TTS. It does not issue a browser-owned Realtime session, because that could bypass per-request budget checks. The legacy cloud session and search endpoints are rejected; reload old tabs after deployment. Search is available to the answer model when facts require it, with at most two calls. A response can still be displayed in text when remaining funds cannot cover speech.
+
+Budget status appears inside the existing settings panel and refreshes every 15 seconds. No new schema or credentials are required; it reuses the existing private cloud cache table. The app does not run new paid requests during tests. Production takes effect after pushing and deploying the code.

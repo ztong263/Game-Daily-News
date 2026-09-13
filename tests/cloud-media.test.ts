@@ -3,14 +3,17 @@ import assert from "node:assert/strict";
 import {createClient} from "@supabase/supabase-js";
 import {CloudMedia} from "../lib/cloud/media";
 import {cloudSession,cloudVoiceUsage} from "../lib/cloud/live";
+import {budgetFixture} from "./budget-fixture";
 test("cloud speech caches once, scopes downloads, records usage and keeps microphone manual",async()=>{
  const oldFetch=globalThis.fetch,oldKey=process.env.OPENAI_API_KEY,oldMode=process.env.EDITORIAL_MODE;
  process.env.OPENAI_API_KEY="test-only";process.env.EDITORIAL_MODE="production";
  const owner="11111111-1111-4111-8111-111111111111";
  const brief={schemaVersion:1,id:"fixture",version:"v1",date:"2026-09-10",timezone:"Australia/Sydney",generatedAt:"2026-09-10T00:00:00Z",locale:"zh-CN",title:"Fixture",items:[{id:"one",category:"industry",headline:"Fixture",summary:"Fixture",whyItMatters:"Fixture",userRelevance:"Fixture",sources:[{title:"Fixture",url:"https://example.com",publisher:"Fixture",publishedAt:null,kind:"primary"}],paragraphs:["Synthetic test narration"],uncertainty:null,design:null,workflow:null}],todaysSignal:{text:"Fixture",itemIds:[]},editorNote:""};
  let audioRow:{object_path:string;metadata:{text:string}}|null=null;let synthesis=0;let usage=0;let downloads=0;let available=true;
+ const budgetMock=budgetFixture();
  globalThis.fetch=async(input,init)=>{
   const url=new URL(String(input));const method=init?.method||"GET";
+  const budgetResult=budgetMock(url,init);if(budgetResult)return budgetResult;
   if(url.hostname==="api.openai.com"){
    if(url.pathname.endsWith("/audio/speech")){synthesis++;return new Response(new Uint8Array([1,2,3]));}
    assert.ok(init?.body instanceof FormData);const config=JSON.parse(String(init.body.get("session")));

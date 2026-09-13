@@ -15,6 +15,7 @@ type Job = {
 import { categoryLabels as labels } from "@/lib/brief/labels";
 import { NewsCard } from "@/components/NewsCard";
 import { EditorialSettings } from "@/components/EditorialSettings";
+import {DailyBudget} from "@/components/DailyBudget";
 import { BriefDatePicker } from "@/components/BriefDatePicker";
 import {BriefManager} from "@/components/BriefManager";
 import {AnswerText} from "@/components/AnswerText";
@@ -153,6 +154,7 @@ export default function Home() {
       audioOutput.current || undefined,
       languageRef.current,
       true,
+      true,
     );
     radio.current = instance;
     return () => {
@@ -255,6 +257,7 @@ export default function Home() {
           {outputError && <p role="alert">{outputError}</p>}
           <audio ref={audioOutput} controls autoPlay aria-label="主播播报声音" />
           <EditorialSettings />
+          <DailyBudget />
           </div>
         </details>
         <section className="intro">
