@@ -2,6 +2,7 @@ import {budgetFetch,resetBudgetDeclines,finishBudgetOperation} from "../budget-f
 import { paragraphs, type MorningBrief } from "../brief/schema";
 import { hostInstructions, languageInstruction, type BroadcastLanguage } from "./language";
 import {recordingWav} from "./recording";
+import {preloadAll} from "./preload";
 import {
   initialCursor,
   transition,
@@ -23,6 +24,7 @@ export type VoiceView = {
   connecting: boolean;
   muted: boolean;
   error: string | null;
+  preparation?: string;
 };
 export class Radio {
   private playbackOperation:string|null=null;
@@ -86,14 +88,32 @@ export class Radio {
   private narrationEpoch=0;
   private narrationText=new Set<string>();
   private narrationRequests=new Map<string,Promise<{url:string;text:string}>>();
+  private preparedAudio=new Map<string,Promise<{url:string;text:string}>>();
+  private disposed=false;
+  private readyLanguages=new Set<BroadcastLanguage>();
+  private prepareAudio(index:number,language:BroadcastLanguage){
+    const key=`${language}:${index}`,existing=this.preparedAudio.get(key);if(existing)return existing;
+    const promise=this.prepareNarration(index,language).then(async result=>{
+      const response=await fetch(result.url);if(!response.ok)throw Error("音频下载未完成，请继续准备。");
+      const blob=await response.blob();if(this.disposed)throw Error("播放已关闭");
+      return {...result,url:URL.createObjectURL(blob)};
+    });this.preparedAudio.set(key,promise);void promise.catch(()=>this.preparedAudio.delete(key));return promise;
+  }
+  dispose(){this.disposed=true;this.stop();for(const promise of this.preparedAudio.values())void promise.then(a=>URL.revokeObjectURL(a.url)).catch(()=>{});this.preparedAudio.clear();}
   private prepareNarration(index:number,language=this.language){
     const key=`${language}:${index}`;
     const existing=this.narrationRequests.get(key);if(existing)return existing;
     const request=(async()=>{
       if(!this.playbackOperation)this.playbackOperation=crypto.randomUUID();
-      const response=await budgetFetch("/api/speech",{method:"POST",headers:{"Content-Type":"application/json","x-budget-operation":this.playbackOperation},body:JSON.stringify({date:this.brief.date,version:this.brief.version,index,language})});
-      const result=await response.json();if(!response.ok)throw Error(result.error);
-      return result as {url:string;text:string};
+      for(let attempt=0;attempt<90;attempt++){
+        if(this.disposed)throw Error("播放已关闭");
+        const response=await budgetFetch("/api/speech",{method:"POST",headers:{"Content-Type":"application/json","x-budget-operation":this.playbackOperation},body:JSON.stringify({date:this.brief.date,version:this.brief.version,index,language})});
+        const result=await response.json();
+        if(result.pending===true){await new Promise(resolve=>setTimeout(resolve,2000));continue;}
+        if(!response.ok)throw Error(result.error);
+        return result as {url:string;text:string};
+      }
+      throw Error("音频仍在准备，已完成的段落会保留，请稍后继续。");
     })();
     this.narrationRequests.set(key,request);
     void request.catch(()=>{if(this.narrationRequests.get(key)===request)this.narrationRequests.delete(key);});
@@ -108,7 +128,15 @@ export class Radio {
     this.act({type:"resume"});const token=this.view.cursor.active;if(!token)return;
     const epoch=++this.narrationEpoch;const index=this.view.cursor.index;
     try{
-      const result=await this.prepareNarration(index);
+      const language=this.language;
+      if(this.preloadWholeBrief&&!this.readyLanguages.has(language)){
+        this.view.preparation="正在准备整期音频…";this.emit();
+        await preloadAll(this.parts.length,i=>this.prepareAudio(i,language),()=>epoch!==this.narrationEpoch,done=>{this.view.preparation=`正在准备音频 ${done}/${this.parts.length}`;this.emit();});
+        if(epoch!==this.narrationEpoch)return;
+        this.readyLanguages.add(language);
+        this.view.preparation=undefined;this.emit();
+      }
+      const result=await (this.preloadWholeBrief?this.prepareAudio(index,language):this.prepareNarration(index));
       if(epoch!==this.narrationEpoch)return;
       audio.srcObject=null;audio.src=result.url;audio.onplaying=null;
       audio.onended=()=>{if(epoch!==this.narrationEpoch)return;this.act({type:"played",token});if(this.view.cursor.mode==="paused")void this.playNarration();else if(this.budgetedQuestions)this.finishPlayback();};
@@ -117,14 +145,14 @@ export class Radio {
       const id=`narration:${this.brief.version}:${this.language}:${index}`;
       if(!this.narrationText.has(id)){this.narrationText.add(id);this.onText("assistant",result.text,id);}
       // Only one paragraph ahead: overlap synthesis with listening without generating the whole brief.
-      if(index+1<this.parts.length){
+      if(!this.preloadWholeBrief&&index+1<this.parts.length){
         void this.prepareNarration(index+1).then(async next=>{
           if(epoch!==this.narrationEpoch)return;
           const download=await fetch(next.url,{cache:"force-cache"});
           if(download.ok)await download.arrayBuffer();
         }).catch(()=>{});
       }
-    }catch(e){if(epoch!==this.narrationEpoch)return;this.view.error=e instanceof Error?e.message:"无法播放音频";this.act({type:"pause"});}
+    }catch(e){if(epoch!==this.narrationEpoch)return;this.view.preparation=undefined;this.view.error=e instanceof Error?e.message:"无法播放音频";this.act({type:"pause"});}
   }
   private usageRunId=crypto.randomUUID();
   private searchedCalls=new Set<string>();
@@ -198,6 +226,7 @@ export class Radio {
     private language: BroadcastLanguage = "zh",
     private cachedNarration = false,
     private budgetedQuestions = false,
+    private preloadWholeBrief = false,
   ) {
     this.parts = paragraphs(brief);
     try {
@@ -422,6 +451,7 @@ export class Radio {
     });
   }
   pause() {
+    this.view.preparation=undefined;
     if(this.budgetedQuestions)this.cancelBudgetQuestion();
     this.narrationEpoch++;this.output?.pause();
     this.cancel();
@@ -608,6 +638,7 @@ export class Radio {
       this.fail("语音服务发生错误，请重试。");
   }
   stop() {
+    this.view.preparation=undefined;
     if(this.budgetedQuestions)this.finishPlayback();
     if(this.budgetedQuestions)this.cancelBudgetQuestion();
     this.narrationEpoch++;this.output?.pause();

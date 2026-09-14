@@ -38,7 +38,7 @@ test("cloud speech caches once, scopes downloads, records usage and keeps microp
   assert.equal((await media.speech(request)).cacheHit,true);assert.equal(synthesis,1);assert.equal(usage,1);
   assert.equal((await media.download(first.url.split("key=")[1])).status,200);assert.equal(downloads,1);
   audioRow!.object_path="other-owner/audio.mp3";await assert.rejects(media.download(first.url.split("key=")[1]));assert.equal(downloads,1);
-  audioRow=null;available=false;await assert.rejects(media.speech(request));assert.equal(synthesis,1);
+  audioRow=null;available=false;assert.equal((await media.speech(request)).pending,true);assert.equal(synthesis,1);
   await assert.rejects(media.speech({...request,version:"old"}));assert.equal(synthesis,1);
   assert.equal((await cloudSession(media,{...request,briefId:brief.id,sdp:"v=0"})).status,200);
   await cloudVoiceUsage(media,{runId:owner,date:brief.date,briefId:brief.id,responseId:"response",status:"completed",usage:{input_tokens:10,output_tokens:20,total_tokens:30}});assert.equal(usage,2);

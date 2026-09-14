@@ -8,10 +8,12 @@ import {CloudError} from "./auth-policy";
 export class CloudRepository{
  constructor(private db:SupabaseClient,private ownerId:string){}
  async status(date=dateInZone(new Date(),process.env.BRIEF_TIMEZONE||"Australia/Sydney")){
-  const {data,error}=await this.db.from("gd_briefs").select("payload").eq("owner_id",this.ownerId).eq("brief_date",date).eq("is_active",true).maybeSingle();
+  const [{data,error},task]=await Promise.all([
+   this.db.from("gd_briefs").select("payload").eq("owner_id",this.ownerId).eq("brief_date",date).eq("is_active",true).maybeSingle(),
+   this.db.from("gd_jobs").select("status,payload,attempts,updated_at,error_code").eq("owner_id",this.ownerId).eq("job_key","brief:"+date).maybeSingle(),
+  ]);
   if(error)throw error;
   const brief=data?briefSchema.parse(data.payload):undefined;
-  const task=await this.db.from("gd_jobs").select("status,payload,attempts,updated_at,error_code").eq("owner_id",this.ownerId).eq("job_key","brief:"+date).maybeSingle();
   if(task.error)throw task.error;
   const running=task.data&&["queued","running"].includes(task.data.status);
   return {date,status:running?"generating":brief?"ready":task.data?.status==="failed"?"failed":"missing",stage:running?task.data?.payload.stage:brief?"早报已准备好":"等待准备",attempts:task.data?.attempts||0,updatedAt:task.data?Date.parse(task.data.updated_at):brief?Date.parse(brief.generatedAt):0,brief,cloudPending:!!running,budgetSummary:task.data?.payload?.budgetSummary,error:task.data?.status==="failed"?(task.data.payload?.failureMessage||"生成未完成，旧任务未记录具体原因。已有早报已保留；重新生成可能产生费用。"):undefined};
@@ -22,7 +24,10 @@ export class CloudRepository{
    if(error)throw error;dates.push(...(data||[]).map(row=>row.brief_date as string));if(!data||data.length<500)break;
   }return dates;
  }
- async latest(){const date=(await this.dates())[0];return date?(await this.status(date)).brief:null;}
+ async latest(){
+  const {data,error}=await this.db.from("gd_briefs").select("payload").eq("owner_id",this.ownerId).eq("is_active",true).order("brief_date",{ascending:false}).limit(1).maybeSingle();
+  if(error)throw error;return data?briefSchema.parse(data.payload):null;
+ }
  async versions(date:string){
   const {data,error}=await this.db.from("gd_briefs").select("payload,is_active").eq("owner_id",this.ownerId).eq("brief_date",date).order("created_at");
   if(error)throw error;

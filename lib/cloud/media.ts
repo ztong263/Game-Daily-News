@@ -1,10 +1,9 @@
 import type {SupabaseClient} from "@supabase/supabase-js";
 import {createHash,randomUUID} from "node:crypto";
 import {z} from "zod";
-import {paragraphs} from "../brief/schema";
+import {paragraphs,briefSchema} from "../brief/schema";
 import {api} from "../server/openai";
 import {pipelineBudget} from "../editorial/budget";
-import {CloudRepository} from "./repository";
 import {CloudError} from "./auth-policy";
 import {cloudFailure} from "./errors";
 import {DailyBudget,BudgetConfirmation,BUDGET_MODEL,textReserve,textCost,speechReserve} from "./budget";
@@ -15,7 +14,11 @@ export class CloudMedia{
   const {error}=await this.db.from("gd_usage").upsert({owner_id:this.ownerId,event_key:eventKey,stage,model,input_tokens:usage?.input_tokens??null,output_tokens:usage?.output_tokens??null,tool_calls:toolCalls,details},{onConflict:"owner_id,event_key",ignoreDuplicates:true});
   if(error)throw new CloudError("用量记录保存失败，请稍后重试。",503);
  }
- async brief(date:string,version:string){const job=await new CloudRepository(this.db,this.ownerId).status(date);if(!job.brief||job.brief.version!==version)throw new CloudError("早报版本已变化，请刷新。",409);return job.brief;}
+ async brief(date:string,version:string){
+  const {data,error}=await this.db.from("gd_briefs").select("payload").eq("owner_id",this.ownerId).eq("brief_date",date).eq("is_active",true).maybeSingle();
+  if(error)throw error;const brief=data?briefSchema.parse(data.payload):null;
+  if(!brief||brief.version!==version)throw new CloudError("早报版本已变化，请刷新。",409);return brief;
+ }
  private async cached(key:string){
   const {data,error}=await this.db.from("gd_audio").select("object_path,metadata").eq("owner_id",this.ownerId).eq("cache_key",key).maybeSingle();
   if(error)throw error;return data;
@@ -28,7 +31,7 @@ export class CloudMedia{
   const hit=await this.cached(key);if(hit)return {url:"/api/speech?key="+key,text:hit.metadata.text,cacheHit:true};
   if(pipelineBudget().offline)throw new CloudError("离线模式只能播放已缓存音频。",409);
   const token=randomUUID();const claim=await this.db.rpc("gd_claim_speech",{p_owner:this.ownerId,p_key:key,p_token:token});
-  if(claim.error)throw claim.error;if(!claim.data)throw new CloudError("下一段音频正在准备，请稍后点击继续。",409);
+  if(claim.error)throw claim.error;if(!claim.data)return {pending:true};
   let completed=false;
   let stage="cache_read";
   try{

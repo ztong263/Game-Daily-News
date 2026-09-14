@@ -158,10 +158,11 @@ export default function Home() {
       languageRef.current,
       true,
       true,
+      true,
     );
     radio.current = instance;
     return () => {
-      instance.stop();
+      instance.dispose();
       radio.current = null;
     };
   }, [brief?.id, brief?.version]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -351,11 +352,11 @@ export default function Home() {
         <div className="voice-row">
           <span role="status">
             <i className={"dot " + (voice.connected ? "green" : "")} />
-            {voice.connecting
+            {voice.preparation || (voice.connecting
               ? "正在连接"
               : !brief
                 ? "正在准备早报"
-                : states[voice.cursor.mode]}
+                : states[voice.cursor.mode])}
           </span>
           {voice.connected && (
             <div>
